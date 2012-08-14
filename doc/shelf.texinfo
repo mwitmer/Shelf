@@ -1,0 +1,863 @@
+\input texinfo 
+@c -*-texinfo-*-
+@c %**start of header
+@setfilename shelf.info
+@settitle Shelf Reference Manual
+@c %**end of header
+
+@copying
+This is the manual for Shelf, a prototype-based object system for
+Guile, GNU's Ubiquitous Intelligent Language for Extensions.
+
+Copyright @copyright{} 2012 Mark Witmer.
+
+@quotation
+Permission is granted to copy, distribute and/or modify this document
+under the terms of the GNU Free Documentation License, Version 1.2 or
+any later version published by the Free Software Foundation; with no
+Invariant Sections, with the Front-Cover Texts being ``Shelf Reference
+Manual,'' and with the Back-Cover Texts as in (a) below.  A copy of
+the license is included in the section entitled ``GNU Free
+Documentation License.''
+
+(a) The FSF's Back-Cover Text is: ``You have the freedom to
+copy and modify this GNU manual.  Buying copies from the FSF
+supports it in developing GNU and promoting software freedom.''
+@end quotation
+@end copying
+
+@titlepage
+@title The Shelf Manual
+@subtitle Version 1.0
+@author by Mark Witmer
+
+@page
+@vskip 0pt plus 1filll
+
+@insertcopying
+@end titlepage
+
+@contents
+
+@ifnottex
+@node Top
+@top The Shelf Manual
+
+@insertcopying
+@end ifnottex
+
+Shelf brings the flexibility and openness of a prototype-based object
+system to Guile. Particularly suited to Scheme's live-code model of
+software creation, it allows you to define, extend, and inherit from
+objects on the fly, before and during run-time. Shelf also includes
+powerful serialization tools that enable you to save an object
+hierarchy to disk in readable Scheme code---including procedures---and
+load it later. Shelf also leverages the Guile compiler to embed
+fast-loading bytecode directly into your objects.
+
+@menu 
+* Installing Shelf::                    Getting ready to go
+* The Basics::                          How Shelf Works
+* Using Shelf::                         Putting Shelf to work in your application
+* Creating Objects::                    Defining your data
+* Object Operations::                   Operations common to all objects
+* Object Properties::                   Getting and setting an object's properties
+* Saving and Loading Objects::          Saving objects for later
+* Object Utils::                        Some useful utility functions and macros
+* Index::
+@end menu
+
+@node Installing Shelf
+@chapter Installing Shelf
+
+I don't actually know what will go here yet!
+
+@node The Basics
+@chapter The Basics
+
+This manual assigns particular meanings to several common terms. These
+definitions will clarify what they refer to.
+
+@menu
+Objects::       The building blocks of Shelf
+Prototypes::    How objects link together
+Methods::       How an object's behavior is defined
+@end menu
+
+@node Objects
+@subsection Objects
+The term `object' is an overloaded one in computer jargon, with many
+meanings that don't all line up. Usually, in the Scheme programming
+language and other Lisp derivatives, an @dfn{object} is a piece of
+data stored in memory that can be referenced by other objects,
+procedures, and special forms. This is in contrast to other
+programming paradigms, such as object-oriented programming, where
+objects are individual examples (or @dfn{instances}) of classes that
+define a set of properties and a set of operations on those
+properties.
+
+Shelf objects are, like any other datum in Scheme, `objects' in the
+Scheme-sense. More specifically, they are Scheme procedures that
+access, modify, and inspect underlying Shelf object data defined with
+an object-oriented paradigm known as the @emph{prototype-based object
+model}.
+
+@node Prototypes
+@subsection Prototypes
+In Shelf's prototype-based object system, one object can use another
+object as its @dfn{prototype}, inheriting all of its properties and
+operations. An object with a prototype can be thought of as a `child'
+of the prototype object. To the program, it will at first appear that
+the child is identical to its prototype, but there are some important
+differences. Any time the program modifies a property of the child
+object, the new value will override the prototype's value, but only
+for that particular child. For example, in the following Shelf code:
+
+@example
+(define-object Parade
+  (time-of-day 'afternoon)
+  (duration 'four-hours))
+
+(define torchlit-parade (instance Parade))
+(define march-on-the-capitol (instance Parade))
+
+(set! (torchlit-parade 'time-of-day) 'night)
+@end example
+
+@code{torchlit-parade} will give the value @code{'night} for property
+@code{'time-of-day}, but @code{march-on-the-capitol} will still give it as
+@code{'afternoon}. For more information on creating Shelf objects,
+@xref{Creating Objects}.
+
+An object's prototype may have a prototype of its own, which likewise
+can have a prototype, and so on. This sequence is often referred to as
+the @dfn{inheritance chain}. Thus in Shelf, classes are not explicitly
+defined, but rather they can be inferred from an object's properties,
+those of its prototype, and so on up the inheritance chain. Shelf
+objects may only have one prototype, but each prototype can have
+multiple children. Prototypes can optionally maintain references to
+their children, creating an @dfn{inheritance tree} that can be
+traversed both up and down.
+
+@node Methods
+@subsection Methods
+
+Shelf implements operations on an object's properties with a special
+kind of property called a @dfn{method}. Methods are Scheme procedures
+that define two special variables---@code{this} and
+@code{super}. @code{this} refers to the object the method was invoked
+on. Normally that is the object the method belongs to, but not
+necessarily (...). @code{super} is a bit more complicated; for now it
+is sufficient to think of it as referring to the object's prototype,
+but it exhibits some special qualities that make it more useful in
+practice (...).
+
+Methods also store their original source code so that they can be
+serialize and reloaded along with the object they belong to. This
+property is very useful, but it brings with it some
+limitations. Reloading or evaling a serialized method with free
+variables will likely cause errors. For a partial workaround, see the
+@code{enclosure} macro @ref{enclosure}. As a rule, methods should
+reference only their arguments and properties of @code{this} and
+@code{super}.
+
+@node Using Shelf
+@chapter Using Shelf
+
+Using Shelf is as simple as adding one or two modules to your application.
+
+@menu
+Including Shelf::       How to include Shelf in your application
+Loading Objects::       Loading previously saved Shelf objects
+@end menu
+
+@node Including Shelf
+@section Including Shelf in Your Application
+
+Shelf consists of two modules: @code{(shelf shelf)} and @code{(shelf
+shelf-utils)}. @code{(shelf shelf)} contains the core functionality of
+creating, extending, and saving objects. @code{(shelf shelf-util)}
+contains additional definitions that are useful for manipulating
+objects in certain ways. @code{(shelf shelf-util)} is optional but can
+prove useful in many circumstances. @xref{Object Utils} for a detailed
+description of what this package contains.
+
+Here is an example of a simple file that uses Shelf:
+
+@example   
+(use-modules 
+  (shelf shelf)
+  (shelf shelf-util))
+
+(define-object Car
+  (initialize! (method (mileage) (set! (this 'mileage) mileage)))
+  (brand 'Ford))
+
+(define my-car (instance Car #:args '(125000)))
+(define your-car (instance Car #:args '(60000)))
+
+(define mileages (map (applicator 'mileage) (list my-car your-car)))
+@end example
+
+@node Loading Objects
+@section Loading Shelf Objects
+
+Shelf objects that have previously been serialized and saved to a file
+may be loaded as source files with Guile's @code{load} procedure. They
+may also be compiled to objcode files and later compiled back to
+Scheme. 
+
+Remember that saved Shelf objects are Guile programs; loading them
+require the Shelf module and any other module used by their methods
+and properties to be loaded into the evaluation environment. When
+@code{compile} is called for that purpose, be sure that the
+@code{#:env} parameter is the same when compiling to objcode and
+compiling back to scheme. Not doing so, or simply trying to load an
+objcode file directly will cause errors. @xref{serialize} and
+@ref{compile} for more information.
+
+It is also possible to serialize Shelf objects inside of a file
+containing the appropriate @code{use-modules} call, but there is
+currently no built-in support for doing so.
+
+@node Configuring Shelf
+@section Configuring Shelf
+
+Some features of Shelf are optional. Optional features can be
+enabled/disabled with the @code{set!} macro. Features should be
+enabled or disabled before any Shelf objects are created and keep
+the same value as long as the application is running.
+
+@menu
+Updating Prototypes::           Keeping the object hierarchy fresh
+Cross References::              Linking objects together and serializing by reference
+Setting the uid generator::     Using a custom uid generation algorithm
+@end menu
+
+@node Updating Prototypes
+@subsection Updating Prototypes
+
+@deffn {Variable} runtime-prototype-update?
+
+This variable determines if Shelf should store information about what
+objects are prototypes for other objects while the program is
+executing to allow for a more dynamic development experience.
+
+When @code{runtime-prototype-update?} is true, inserting a named
+object into an inheritance chain with the method @var{extend} will
+initiate a search for other objects with the same name. The new object
+will become the prototype of all the previously defined objects'
+children.
+
+Enabling this feature slows down the execution of a program, but
+vastly simplifies live modification of the object hierarchy at
+runtime. This feature is useful when working at a Guile REPL.
+
+Example:
+@example
+(define-object Shoe)
+(define-object RunningShoe (made-of 'rubber))
+(extend Shoe (list RunningShoe))
+
+(define my-sneaker (instance RunningShoe))
+
+(my-sneaker 'made-of) @result{} 'rubber
+
+(extend Shoe (list (object 'RunningShoe (h (made-of 'plastic)))))
+
+(my-sneaker 'made-of) @result{} 'plastic
+
+@end example
+
+This feature is enabled by default.
+@end deffn
+
+@node Cross References
+@subsubsection Cross References
+
+@deffn {Variable} enable-cross-references?
+
+Shelf is capable of mapping a unique id to every object. If
+@code{enable-cross-references?} is set to true, Shelf will create such
+a map, and each object will have a @code{reference} operation defined.
+Performing this operation on an object produces a value that other
+Shelf objects may refer to as if it were the original object itself.
+
+@code{enable-cross-references?} allows circular references that would
+otherwise be impossible with Shelf's value-based
+serialization. @xref{References} for more information.
+
+This feature is enabled by default.
+@end deffn
+
+Currently the map of unique ids is used both by
+@var{enable-cross-references?} and @var{runtime-prototype-update?}, so
+Shelf will maintain it unless both are set to false.
+
+@node Setting the uid Generator
+@subsubsection Setting the uid Generator
+
+Shelf has a built-in function for generating unique object IDs, but an
+application may set a different function for that task if desired.
+
+@deffn Procedure set-uid-generator! proc
+Sets Shelf's random uid generator to @var{proc}, a function that takes
+no arguments and generates a unique id for every newly-created object.
+@end deffn
+
+@node Creating Objects
+@chapter Creating Objects
+
+Object creation is the heart of Shelf, and there are several ways to
+do it. The right method depends on what role the object will play in
+the inheritance chain and if it ought to be bound in the module's
+scope with the Scheme form @code{define} or not.
+
+@menu
+Basic Object Creation::        Using the @code{object} procedure
+Global Objects::               Creating objects with @code{define-object}
+Instances::                    Objects with a prototype
+Creating Methods::             How to create methods for Shelf objects
+How uids Are Chosen::          How Shelf determines an objects unique id
+@end menu
+
+@node Basic Object Creation
+@section 
+The most basic and versatile way to create a Shelf object is with the
+@code{object} procedure.
+
+@deffn {Procedure} object [name] [properties] [children-list] [saved-uid=#f]
+This procedure creates a new Shelf object. Calling @code{object} with
+no arguments yields the simplest Shelf object possible: one with no
+name, properties, prototype, or children. 
+
+@var{name}, when provided, is a symbol or other datum that can be used
+internally by the Shelf system to uniquely identify the object.
+
+In some methods it is also possible to refer to an object by name
+instead of with a direct reference. This method is less efficient than
+direct references and should be avoided where possible.
+
+@var{properties} is an srfi-69 hash table that contains the
+properties for the new object. Such hash tables can be created with
+a simple syntax using the macro @code{h} @ref{The h Macro}.
+
+@var{children-list} is a list of objects that will have their
+prototype set to the new object. In addition, the new object will
+maintain these child objects as values in a map with their names as
+keys. Children and further descendants can be found later using the
+operation @code{desc} @ref{Descendant Objects}.
+
+Using this argument, it is possible to define an entire inheritance
+tree in one expression.  However, finding objects using the
+@code{desc} operator is much slower than referring to them directly as
+Guile variables. @xref{Extending Objects} for a way to create more
+flexible inheritance trees.
+
+@var{saved-uid} is used when reloading serialized objects and should
+not be included when objects are created in an application.
+
+@ref{How uids are Generated}.
+
+@end deffn
+
+@node Global Objects
+@section Global Objects
+
+Some objects will serve as prototypes for a large number of
+descendants. Objects that will be used throughout an application, or
+that will be exported by a module, can use a simpler syntax than
+something unwieldy like @code{(define Object (object 'Object (h
+(property 'value))))}
+
+@deffn Macro define-object name (key value) ...
+
+This macro is a wrapper around @code{define} and @code{object}.  It
+defines a variable with the given name to be an object of the same
+name, with properties @var{(key value) ...}. Objects created with
+@code{define-object} are available in the top-level scope in the macro
+where they are defined. Key-value pairs are defined using the same
+syntax as the h macro @ref{The h Macro}.
+
+@end deffn
+
+@node Instances
+@section Instances
+
+An `instance' in most other object-oriented systems is distinct from
+the class that defines its behavior. Shelf doesn't include static
+class definitions, so there is no real distinction between instances
+and other objects. However, conceptually it is still often useful to
+think of some objects as prototypes that define most of the properties
+of a class, and others as instances that extend the class and
+enapsulate some mutable data. Shelf supports the creation of
+instance-like objects with the @code{instance} method.
+
+@deffn Procedure instance parent [properties] [children] [args=#f] [saved-uid=#f]
+
+@var{parent} is the object that serves as a prototype for the instance.
+
+@var{properties} is an optional srfi-69 hash containing properties for
+the new instance. As is always the case, properties of the child will
+override any corresponding properties in the prototype.
+
+@var{children} is a list of children that will use the instance as a
+prototype. Although the instance is not part of the inheritance tree
+of its prototype, it may have an inheritance tree of its own, and will
+maintain a map of its children and their names.
+
+@var{args} If the prototype defines a property called
+@code{initialize!}, Shelf will invoke that method on the newly created
+instance, passing @var{args} as a list of parameters. This in effect
+behaves as a constructor for the new instance @ref{Constructors}.
+
+@var{saved-uid} should only be used when loading serialized instances;
+@xref{Basic Object Creation} for a more detailed explanation of this argument.
+
+@end deffn
+
+@node How uids are Generated
+@section How uids are Generated
+
+Shelf's default UID generation algorithm follows the method specified
+in ITU-T Rec. X.667 variant 4
+@url{http://www.itu.int/ITU-T/studygroups/com17/oid.html}. UIDs
+consist of 32 hexadecimal digits broken into 5 groupings of length 8,
+4, 4, 4, and 12 respectively. The first digit of the third group is
+set to 4 to identify which standard UID generating algorithm was used,
+and the first two bits of the second fourth group are ``10'', to
+signify which variant of the standard is used. Thus, the first
+hexadecimal digit of the fourth group is either 8, 9, a, or b. All
+other digits are randomly generated.
+
+Shelf maintains its own random state, produced by a call to
+@code{random-state-from-platform}. The Guile variable
+@code{*random-state*} is not modified.
+
+The default UID generation algorithm can be overridden with a call to
+@code{set-uid-generator!} @ref{Setting the UID Generator}
+
+@node Creating Methods
+@section Creating Methods
+
+Method syntax closely resembles Scheme's @code{lambda} syntax. In
+fact, it is identical to Guile's @code{lambda*}, except that the
+operator @code{method} replaces @code{lambda*}.
+
+@example
+(method () "This is a method with no arguments")
+(method (arg1 arg2) "This is a method with two arguments")
+(method (arg1 arg2 #:optional arg3 #:key arg4) "This is a method with optional and keyword arguments.")
+@end example
+
+Methods are stored by Shelf as records with two fields: the actual
+procedure that Shelf calls when the method is invoked, and an escaped
+list of Scheme primitives that represents the source code of the
+methods. 
+
+Storing the source code of the method allows Shelf to save and restore
+methods when they are properties of objects. However, this means that
+free variables that are captured by the procedure in a closure will
+lose their meaning when the restored method is evaluated. Methods
+should only refer to local variables, procedure arguments, and
+properties of their containing object acquired by using @code{this}
+and @code{super} @ref{this and super}.
+
+@node Object Operations
+@chapter Object Operation
+
+@node References
+@subsection References
+
+@deffn {Operation} reference
+
+The operation @code{reference} returns a structure containing an id
+that uniquely maps to the object, and a Scheme variable referring
+directly to the object. This operation is only available if
+@code{enable-cross-references?} is set to true.
+
+Imagine a scenario where object @var{bag} had property
+@var{contents}, a list of objects.  If any of these objects had
+@var{bag} as a property, serializing @var{bag} would cause inifinite
+recursion. References allow code such as the following:
+
+@example
+(define-object Bag
+  (initialize! (method () (set! (this 'contents) '())))
+  (add-item! (method (item) (set! (this 'contents) (cons item (this 'contents))))))
+
+(define-object Item
+  (initialize! (method (container) 
+                 (set! (this 'container) (container #:op 'reference)))))
+
+(define my-bag (instance Bag #:args '()))
+(define my-item (instance Item #:args `(,my-bag)))
+
+(my-bag 'add-item! my-item)
+
+(my-item 'container) ;; my-bag (the object itself, not the reference)
+
+(my-bag #:op 'serialize)
+
+;; (instance (quote Bag) (h (contents (list (instance (quote Item) (h
+;; (container (make-reference "b528cc6c-ae60-4ab1-8bf8-3453c2afd91c"
+;; #f))) (list) #:saved-uid "a137c4a8-2234-46ce-9b9f-1cd65d2914e6"))))
+;; (list) #:saved-uid "b528cc6c-ae60-4ab1-8bf8-3453c2afd91c")
+
+@end example
+
+When Shelf loads a reference in a serialized object, the variable
+meant to refer directly to the Shelf object will be set to false. The
+first time the reference is used, Shelf will look up the reference's
+id in the uid table abd cache the matching object into the variable
+slot. Thus references only ever need to be resolved by Shelf once and
+Guile will maintain the reference through usual means afterwards.
+
+References are only needed if an application requires serialization
+wherein an object appears multiple times. If this is not the case,
+setting @var{enable-cross-references?} to false will improve the
+application's performance.
+
+@end deffn
+
+@node Object Properties
+@chapter Object Properties
+
+Shelf objects use Guile's built-in implementation of srfi-17,
+@emph{procedure-with-setter} for getting and setting properties. The
+basic behavior of this construct as as follows:
+
+@strong{Getting:} @var{(object property-key)} @result{} @var{property-value}
+@strong{Setting:} @var{(set! (object property-key) property-value)} 
+
+More detailed explanations of these operations follow.
+
+@menu
+Getters::               Retrieving Object Properties
+Setters::               Updating Object Properties
+Invoking Methods::      Calling Object Methods
+@end menu
+
+@node Getters
+@section Object Property Getters
+
+Shelf properties can be retrieved directly, or with a list that
+retrieves values inside properties if they are compound Scheme
+objects.
+
+@menu
+Simple Get::            Getting properties directly
+Compound Get::          Getting values inside properties that are vectors, arrays, etc.
+@end menu
+
+@node Simple Get
+@subsection Simple Get
+
+To retrieve an object's property, invoke the object procedure with the
+desired property's name as the single argument.
+
+@var{(object property-key)} @result{} @var{property-value}
+
+If there object does not have a value for the given key, Shelf will
+raise an exception. Alternatively, a default value may be passed as
+an additional argument with the keyword @code{#:def}.
+
+@example
+(define kingdom-key "kingdom")
+(define-object Grass (color 'green) (kingdom-key "Plant"))
+
+(Grass 'color)                          @result{} 'green
+(Grass kingdom-key)                     @result{} "Plant" 
+(Grass 'bugs #:def '(grasshopper ant))  @result{} '(grasshopper ant)
+(Grass 'bugs)                           @result{} Causes an exception
+@end example
+
+If Shelf encounters an object reference, it will resolve the reference
+and return a full object. @xref{The #:raw-get Operation} for information on
+accessing unresolve references.
+
+If the returned value is a list, Shelf will recursively descend through
+the list, invoking any methods it encounters and resolving all references.
+To see how to prevent Shelf from doing this, @ref{The #:get Operation}.
+
+Object properties that are methods are handled in a special way
+@ref{Invoking Methods}.
+
+@node Compound Get
+@subsection Compound Get
+
+When the argument passed to the object's procedure is a list, Shelf
+getters can be used to access data within the following compound
+objects as well:
+
+@itemize @bullet
+@item
+Vectors
+@item
+Arrays
+@item
+Shelf object references
+@item
+Other Shelf objects
+@item
+Hash tables
+@end itemize
+
+The first element in the list matches the key of the desired property;
+subesequent elements retrieve a compound object from the previously
+retrieved object. This behavior is best explained with examples:
+
+@example
+
+(define-object 
+  ComplexObject
+  (hash (h
+    (vector 
+      (make-vector 4 
+                   (make-array 
+                     (object 'InnerObject (h (inner-value 5)))
+                     3 
+                     3))))))
+
+(ComplexObject '(hash vector 2 (1 1) inner-value)) @result{} 5
+
+(define-object ReferencedObject (value 6))
+(define-object ReferringObject (referenced (ReferencedObject #:op 'reference)))
+(ReferringObject '(referenced value)) @result{} 6
+
+@end example
+
+If any of the intermediate results is not the right kind of compound
+object, or if the desired index or key is not present, Shelf will
+raise an exception or return the default value if one is provided.
+
+@node Setters
+@section Object Property Setters
+
+Setting object properties is accomplished using an extended
+@code{set!} syntax, which takes two arguments. The first argument is
+the syntax that would be used to get the value being set, and the
+second is the new value itself.
+
+@example
+(define-object Object)
+(set! (object 'number) 12)
+(object 'number) @result{} 12
+@end example
+
+If the get syntax uses a list for a key, Shelf will find or create
+hash tables when necessary to store the value. 
+
+@example
+(define-object Object
+  (compound (h (val 5))))
+
+(set! (Object '(compound inner val)) 10)
+(Object '(compound inner val)) @result{} 10
+(Object '(compound val)) @result 5
+@end example
+
+Arrays, vectors, and new Shelf objects are not used in this case and
+should be created separately before being set as a property. This is
+because Shelf would not know how large to make the arrays and vectors
+or what prototype or name to use for new Shelf objects.
+
+@node Invoking Methods
+@section Invoking Methods
+
+Shelf Methods are just Scheme procedures with an augmented scope. They
+can be accessed with the same syntax as other object properties.
+
+@menu
+How Methods are Invoked::       What Shelf does when it encounters a method
+this and super::                Special variables available in a method's scope
+@end menu
+
+@node How Methods are Invoked
+@subsection How Methods are Invoked
+
+Shelf methods are invoked automatically. There is no dot syntax,
+@code{apply} or @code{invoke} construct. Instead, when the usual get
+syntax returns a method, Shelf immediately applies the method.
+
+@example
+(define-object TestCase
+  (test-something (method () "This is a test!")))
+
+(TestCase 'test-something) @result{} "This is a test!"
+@end example
+
+If a method requires arguments, they should be passed as additional
+arguments in the get syntax.
+
+@example
+(define-object TestCase
+  (test-a-number (method (n) (format #f "You tested ~a" n))))
+
+(TestCase 'test-a-number 12) @result{} "You tested 12"
+@end example
+
+@xref{Creating Methods} to see how methods are created.
+@xref{The #:get Operation} for a way to retrieve uninvoked methods.
+
+@node this and super
+@subsection @code{this} and @code{super}
+
+The scope inside of a method contains two special bound variables: @code{this}
+and @code{super}. @code{this} simply refers to the object on which the method
+is being invoked.
+
+@example
+(define-object Labratory
+  (test-subject "rutabega")
+  (do-experiment (method () (format #f "You experiment on the ~a" (this 'test-subject)))))
+
+(Labratory 'do-experiment) @result{} "rutabega"
+@end example
+
+@code{super} is a special object that has behavior similar to the
+object's prototype, but with a key difference. When any methods of
+@code{super} are invoked, @code{this} inside that method will still
+refer to the same @code{this} as in the method that called it. That
+way it is possible to invoke methods higher up in the inheritance
+chain while still having them operate on the current object.
+
+@example
+(define-object Vegetable
+  (rotten? #f)
+  (rot! (method () 
+          (set! (this 'rotten?) #t)  
+          (display "The vegetable rots. "))))
+
+(define Tomato
+  (instance Vegetable
+    (h (squishy? #f)
+       (rot! (method ()
+               (super 'rot!)
+               (set! (this 'squishy?) #t)
+               (display "The tomato rots. "))))))
+
+(Tomato 'rot!) @print{} "The vegetable rots. The tomato rots. "
+(Tomato 'squishy?) @result{} #t
+(Tomato 'rotten?) @result{} #t
+(Vegetable 'rotten?) @result{} #f
+
+@end example
+
+Sometimes, it is useful to get a method without evaluating
+it. @xref{The #:get Operator} to see how this is done. In rare
+circumstances, it is desirable to get a method before @code{this} and
+@code{super} have been bound. @xref{The #:get-raw Operator} to see how
+that is done.
+
+@node Saving and Loading Objects
+@chapter Saving and Loading Objects
+
+Shelf considers any object that has a prototype and uses the reserved value
+@code{*unspecified*} as its name to be an instance. It will serialize
+the object into a call to @code{instance}.
+
+@node Object Utils
+@chapter Object Utils
+
+Shelf includes some helper procedures and macros that make object
+definition and manipulation easier. Some of these are used internally
+by Shelf and reside in module @code{shelf shelf}; the others are
+optional and are found in @code{shelf shelf-util}.
+
+@menu
+Shelf Helpers::         Shelf's internal helpers available to the user
+Shelf Utils::           Functions for working with Shelf objects
+@end menu
+
+@node Shelf Helpers
+@section Shelf Helpers
+
+Shelf define several features for use internally that can also be
+helpful to the end-user. These include facilities for working with
+embedded bytecode, manually resolving Shelf references, and syntax for
+defining hash tables in a single expression.
+
+@menu
+Bytecode Operations::   Distinguishing between bytecode and other typed vectors
+Reference Resolution::  Resolving references manually
+The h Macro::           Quick hash-table definition
+@end menu
+
+@node Bytecode Operations
+@subsection Bytecode Operations
+
+Shelf is capable of storing objects and object properties as compiled
+Guile bytecode @ref{Compiling Objects}. Normally, Guile bytecode is simply
+stored as a typed vector like any other. Shelf places bytecode vectors into
+a record type in order to distinguish them for other typed vectors.
+
+@deffn Procedure make-bytecode-record bytecode
+Creates a bytecode record for @var{bytecode}.
+@end deffn
+
+@deffn Procedure bytecode-record->objcode bytecode-record
+Converts the bytecode inside @var{bytecode-record} to objcode. This
+method is useful for saving compiled objects to a file that can be
+loaded using Guile's normal file-loading procedures.
+@end deffn
+
+@deffn Procedure bytecode-record? datum
+A predicate that returns true if @var{datum} is a bytecode-record, and
+false otherwise.
+@end deffn
+
+@deffn Procedure bytecode-record-bytecode bytecode-record
+Returns the underlying bytecode vector of @var{bytecode-record}.
+@end deffn
+
+@node Reference Resolution
+@subsection Reference Resolution
+
+Normally, Shelf will resolve references transparantly; accessing an
+object property that is a reference will return the acutal object
+referred to. However, under certain circumstances it is useful to
+access the reference itself using an object's @code{get-raw} operation.
+References thus obtained can be resolved using the resolve-reference
+procedure.
+
+@deffn Procedure resolve-reference reference
+Returns the object that @var{reference} refers to.
+@end deffn
+
+@deffn Procedure reference? datum
+Returns true if @var{datum} is a reference, false otherwise.
+@end deffn
+
+@node The h Macro
+@subsection The h Macro
+
+Defining srfi-69 hash tables normally requires multiple expressions;
+first a call to @code{make-hash-table}, and then several calls to
+@code{hash-table-set!}. This can be ameliorated by using
+@code{alist->hash-table}. Shelf goes one step further by defining a
+macro, h, that skips the alist->hash-table conversion and creates a
+hash-table directly from syntax. Shelf defines saved object property
+maps in terms of this macro.
+
+@deffn Macro h (key value) ...
+Evaluates to a hash-table populated with the given keys mapped to the
+given values. Keys are quasiquoted inside the macro, so it is not
+necessary to quote symbols.
+
+@example
+(define my-hash (h (vm 'guile) (object-system 'shelf)))
+(define unusual-hash-key '(b . c))
+(define my-hash-with-unusual-keys (h (,unusual-hash-key 'd)))
+@end example
+
+The key equality test in the new hash-table is @code{eq?}.
+
+@end deffn
+
+@node Index
+@unnumbered Index
+
+@printindex 
+
+@bye
