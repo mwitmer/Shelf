@@ -16,7 +16,7 @@ Shelf lets you create methods as object properties with 'this' and
 'super' bindings similar to object-oriented languages. Think something
 like Javascript with the clean syntax and power of of Scheme.
 
-Saving and loading with Shelf is easy&mdashShelf objects can be written
+Saving and loading with Shelf is easy&mdash;Shelf objects can be written
 out as Scheme syntax and then run back through the interpreter.
 
 Shelf also lets you compile your objects to object code and then back
