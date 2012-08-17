@@ -12,12 +12,12 @@ objects can use another object as a *prototype*. Objects have all the
 properties of their prototype, plus whatever key/value pairs they
 choose to add or override.
 
-Shelf lets you create methods as object properties with familiar
-'this' and 'super' bindings. Think Javascript but with the clean
-syntax and power of Scheme.
+Shelf lets you create methods as object properties with 'this' and
+'super' bindings similar to object-oriented languages. Think something
+like Javascript with the clean syntax and power of of Scheme.
 
-Saving and loading with Shelf is easy---Shelf objects can be written
-out as Scheme syntax and then run back through interpreter.
+Saving and loading with Shelf is Shelf objects can be written
+out as Scheme syntax and then run back through the interpreter.
 
 Shelf also lets you compile your objects to object code and then back
 to Scheme whenever you like.
@@ -48,12 +48,13 @@ the musical score editor Lilypond.
 
 ## Future Ideas
 
-Loading a really big Shelf object is slow. That's partly because
-defining all of an object's properties inside of a closure created at
-run-time seems to defeat many of Guile's attempts at optimization.
-There is some exciting work going on right now to bring a faster VM
-and JIT compilation to Guile. I think that will help speed Shelf up a
-lot. I should probably look for some optimizations on my own, too.
+Loading a really big Shelf object with lots of Scheme objects as
+properties is slow. That's partly because defining all of an object's
+properties inside of a closure created at run-time seems to defeat
+many of Guile's attempts at optimization.  There is some exciting work
+going on right now to bring a faster VM and JIT compilation to
+Guile. I think that will help speed Shelf up a lot. I should probably
+look for some optimizations on my own, too.
 
 Guile ships with a really neat and powerful object system called
 GOOPS. It's *so* powerful, in fact, I'm fairly sure you can make it do
