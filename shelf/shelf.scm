@@ -14,6 +14,7 @@
     set-uid-generator!
     default-uid-generator
     resolve-reference
+    make-reference
     reference?
     make-bytecode-record
     bytecode-record->objcode
@@ -22,6 +23,9 @@
     h
     m
     define-object
+    define-objects
+    define-object-public
+    define-objects-public
     object
     extend
     instance))
@@ -174,7 +178,7 @@ if there is no match"
   (syntax-rules ()
     ((_ (key val) ...)
      (let ((mod (make-module)))
-       (module-define! mod (quote key) val) ...
+       (module-define! mod (quasiquote key) val) ...
        mod))))
 
 (define-syntax h
@@ -252,14 +256,7 @@ if there is no match"
      (let ((child (if (list? spec-el) 
 		      (begin (extend (car spec-el) (cadr spec-el))
 			     (car spec-el))
-		      spec-el)))
-       (if runtime-prototype-update?
-	   (hash-for-each 
-	    (lambda (key value) 
-	      (let ((parent (value #:op 'parent)))
-		(if (and parent (eq? (parent #:op 'name) (child #:op 'name))) 
-		    (value #:op 'set-parent! child)))) 
-	    uids))
+		      spec-el)))       
        (child #:op 'set-parent! parent)
        (hashq-set! (parent #:op 'children) (child #:op 'name) child))) spec))
 
@@ -312,6 +309,22 @@ if there is no match"
        (define-object n (key value) ...)
        (only-define-object child) ...))))
 
+(define-syntax only-define-object-public
+  (syntax-rules ()
+    ((_ (n ((key value) ...)))
+     (define-object-public n (key value) ...))
+    ((_ (n ((key value) ...) (child ...)))
+     (begin
+       (define-object-public n (key value) ...)
+       (only-define-object-public child) ...))))
+
+(define-syntax define-objects-public
+  (syntax-rules ()
+    ((_ n ((key value) ...) (child ...))
+     (begin
+       (only-define-object-public (n ((key value) ...) (child ...)))
+       (make-object-hierarchy n ((key value) ...) (child ...))))))
+
 (define-syntax define-objects
   (syntax-rules ()
     ((_ n ((key value) ...) (child ...))
@@ -319,9 +332,27 @@ if there is no match"
        (only-define-object (n ((key value) ...) (child ...)))
        (make-object-hierarchy n ((key value) ...) (child ...))))))
 
+(define-syntax define-object-public
+  (syntax-rules ()
+    ((_ n (key value) ...) 
+     (begin (define-public n (object (quote n) (m (key value) ...)))
+	    (if runtime-prototype-update?
+		(update-existing-objects (quote n) n))))))
+
 (define-syntax define-object
   (syntax-rules ()
-    ((_ n (key value) ...) (define n (object (quote n) (m (key value) ...))))))
+    ((_ n (key value) ...) 
+     (begin (define n (object (quote n) (m (key value) ...)))
+	    (if runtime-prototype-update?
+		(update-existing-objects (quote n) n))))))
+
+(define (update-existing-objects name obj)
+ (hash-for-each 
+  (lambda (uid obj)
+    (let ((parent (obj #:op 'parent)))
+      (if (and parent (eq? name (parent #:op 'name))) 
+	  (obj #:op 'set-parent! obj))))
+  uids))
 
 (define* (object #:optional n properties children-list #:key saved-uid)
   (letrec* 
@@ -400,9 +431,6 @@ if there is no match"
 	       (child #:op 'set-parent! me) (hashq-set! children (child #:op 'name) child))
 	     children-list))
     me))
-
-(define (decompile bc-record env)
-  (compile (bytecode-record-bytecode bc-record) #:from 'bytecode #:env env))
 
 (define* (instance par #:optional properties children #:key args saved-uid)
   (let ((child (object *unspecified* properties children #:saved-uid saved-uid))

@@ -1,8 +1,7 @@
-(define-module (mwitmer shelf-util)
-  #:use-module (mwitmer prototype)
+(define-module (shelf shelf-util)
+  #:use-module (shelf shelf)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-2)
-  #:use-module (srfi srfi-69)
   #:export (leaf-object-map
 	    applicator
 	    obj-setter
@@ -12,12 +11,10 @@
 	    leaf-object-fold))
 
 (define (leaf-object-fold obj proc start)
-  (hash-table-fold (obj #:op 'children) 
-                   (lambda (key value prior)
-                     (if (= (hash-table-size (value #:op 'children)) 0) 
+  (hash-fold (lambda (key value prior)
+                     (if (null? (hash-map->list (lambda (key value) key) (value #:op 'children))) 
                        (proc value prior)
-                       (leaf-object-fold value proc prior)))
-                   start))
+                       (leaf-object-fold value proc prior))) start (obj #:op 'children)))
 
 (define (make-module-definition module-name use-modules obj)
  `(define-module ,module-name ,@(map (lambda (use-module) '(#:use-module use-module)) use-modules) #:export (,(obj #:op 'name))))

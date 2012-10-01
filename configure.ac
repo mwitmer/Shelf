@@ -29,7 +29,6 @@ GUILE_PROGS
 GUILE_FLAGS
 GUILE_SITE_DIR
 
-
 pkgdatadir="$datadir/$PACKAGE"
 if test "x$guilesitedir" = "x"; then
    guilesitedir="$pkgdatadir"
