@@ -54,21 +54,23 @@
   "Sets the uid generator for new objects to thunk @var{generator}."
   (set! uid-generator generator))
 
-(define (default-uid-generator)
-  "Generate a uid of the format
+(define default-uid-generator
+  (let ((digits (vector #\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9 #\a #\b #\c #\d #\e #\f)))
+   (lambda ()
+     "Generate a uid of the format
 xxxxxxxx-xxxx-4xxx-[8-b]xxx-xxxxxxxxxxxx where each x is a random hex
 digit"
-  (let ((random-digits 
-	 (lambda (n)
-	   (string-concatenate
-	    (map (lambda (rnd) (number->string rnd 16))
-		 (map (lambda (n) (random 16 shelf-random-state)) (iota n)))))))
-    (string-append 
-     (random-digits 8) "-" 
-     (random-digits 4) "-4" 
-     (random-digits 3) "-" 
-     (number->string (+ (random 4 shelf-random-state) 8) 16) (random-digits 3) "-" 
-     (random-digits 12))))
+     (letrec ((random-digits 
+	       (lambda* (n #:optional (built '()))
+		 (if (= 0 n) (apply string built)
+		     (random-digits (- n 1) 
+				    (cons (vector-ref digits (random 16)) built))))))
+       (string-append 
+	(random-digits 8) "-" 
+	(random-digits 4) "-4" 
+	(random-digits 3) "-" 
+	(string (vector-ref digits (+ 8 (random 4)))) (random-digits 3) "-" 
+	(random-digits 12))))))
 
 (define uid-generator default-uid-generator)
 
