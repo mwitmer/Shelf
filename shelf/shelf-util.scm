@@ -11,23 +11,26 @@
 	    leaf-object-fold))
 
 (define (leaf-object-fold obj proc start)
-  (hash-fold (lambda (key value prior)
-                     (if (null? (hash-map->list (lambda (key value) key) (value #:op 'children))) 
-                       (proc value prior)
-                       (leaf-object-fold value proc prior))) start (obj #:op 'children)))
+  (hash-fold 
+   (lambda (key value prior)
+     (if (null? (hash-map->list (lambda (key value) key) (object-children value))) 
+	 (proc value prior)
+	 (leaf-object-fold value proc prior))) start (object-children obj)))
 
 (define (make-module-definition module-name use-modules obj)
- `(define-module ,module-name ,@(map (lambda (use-module) '(#:use-module use-module)) use-modules) #:export (,(obj #:op 'name))))
+ `(define-module ,module-name 
+    ,@(map (lambda (use-module) '(#:use-module use-module)) use-modules) 
+    #:export (,(obj #:op 'name))))
 
 (define applicator
   (lambda args
     (lambda (obj)
-      (apply obj args))))
+      (apply $ obj args))))
 
 (define obj-setter
   (lambda (args value)
     (lambda (obj)
-      (set! (obj args) value))))
+      (set! ($ obj args) value))))
 
 (define (leaf-object-map obj proc)
   (leaf-object-fold obj (lambda (o prior) (cons (proc o) prior)) '()))
@@ -37,8 +40,10 @@
 
 (define (matching-instances pred prop inst)
   (let ((match? (pred inst))
-	(child-matches (fold-right append '() 
-	       (or (and-let* ((children (inst prop #:def #f)))
-			     (map (lambda (child) (matching-instances pred prop child)) children))
-		   '()))))
+	(child-matches 
+	 (fold-right 
+	  append '() 
+	  (or (and-let* ((children ($ inst prop #:def #f)))
+		(map (lambda (child) (matching-instances pred prop child)) children))
+	      '()))))
     (if match? (cons inst child-matches) child-matches)))

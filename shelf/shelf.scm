@@ -5,7 +5,7 @@
   #:use-module (system vm objcode)
   #:use-module (system base compile)
   #:export   
-  (:
+  ($
    bytecode-record->objcode
    bytecode-record-bytecode
    bytecode-record?
@@ -84,7 +84,7 @@ element in @var{arr}."
 			(let ((r (apply array-ref `(,arr ,@indices)))) (proc r))))
     new-arr))
 
-(define reference-record (make-record-type 'reference '(uid obj)))
+(define-once reference-record (make-record-type 'reference '(uid obj)))
 
 (define reference? (record-predicate reference-record))
 (define make-reference (record-constructor reference-record))
@@ -105,10 +105,10 @@ element in @var{arr}."
 (define uids
   (make-weak-value-hash-table))
 
-(define object-record 
+(define-once object-record 
   (make-record-type 
    'object 
-   '(name parent props children uid instances) 
+   '(name parent props children uid instances super-target) 
    (lambda (rec port) 
      (if (object-parent rec) 
 	 (format port "<object ~a (instance of ~a)>"
@@ -137,6 +137,7 @@ element in @var{arr}."
 (define object-name (record-accessor object-record 'name))
 (define object-parent (record-accessor object-record 'parent))
 (define object-props (record-accessor object-record 'props))
+(define object-super-target (record-accessor object-record 'super-target))
 (define object-instances (record-accessor object-record 'instances))
 (define object-children (record-accessor object-record 'children))
 (define object-uid (record-accessor object-record 'uid))
@@ -174,9 +175,10 @@ otherwise, it will look up its whole inheritance chain."
     (syntax-case x ()
       ((_ args stmt ...)
        (with-syntax
-	   ((this (datum->syntax x 'this)))
+	   ((this (datum->syntax x 'this))
+	    (present (datum->syntax x 'present)))
 	 (syntax (make-method 
-		  (lambda (this) (lambda* args stmt ...)) 
+		  (lambda (this present) (lambda* args stmt ...)) 
 		  (quote (method args stmt ...)))))))))
 
 (define-syntax enclose
@@ -184,9 +186,10 @@ otherwise, it will look up its whole inheritance chain."
     (syntax-case x ()
       ((_ ((name value) ...) args stmt ...)
        (with-syntax
-	   ((this (datum->syntax x 'this)))
+	   ((this (datum->syntax x 'this))
+	    (present (datum->syntax x 'present)))
 	 (syntax (make-method
-		  (let ((name value) ...) (lambda (this) (lambda* args stmt ...)))
+		  (let ((name value) ...) (lambda (this present) (lambda* args stmt ...)))
 		  `(enclose ((name ,(property->syntax value)) ...) args stmt ...))))))))
 
 (define-syntax m
@@ -234,14 +237,14 @@ otherwise, it will look up its whole inheritance chain."
 		  (hash-set-inner! next-inner-props (cdr keys))))))
       (module-define! props key value)))
 
-(define bytecode-record (make-record-type 'bytecode '(bytecode)))
+(define-once bytecode-record (make-record-type 'bytecode '(bytecode)))
 
 (define bytecode-record? (record-predicate bytecode-record))
 (define make-bytecode-record (record-constructor bytecode-record))
 (define bytecode-record-bytecode (record-accessor bytecode-record 'bytecode))
 (define (bytecode-record->objcode bc) (bytecode->objcode (bytecode-record-bytecode bc)))
 
-(define method-record (make-record-type 'method '(procedure syntax)))
+(define-once method-record (make-record-type 'method '(procedure syntax)))
 
 (define method? (record-predicate method-record))
 (define make-method (record-constructor method-record))
@@ -276,7 +279,11 @@ otherwise, it will look up its whole inheritance chain."
    ((vector? el) `(vector ,@(map property->syntax (vector->list el))))
    ((or (string? el) (bitvector? el) (not (array? el)) (symbol? el)) `(quote ,el))
    (else 
-    (let ((els (array->list (array-map (lambda (r) `(,'unquote ,(property->syntax r))) el))))
+    (let ((els 
+	   (array->list 
+	    (array-map 
+	     (lambda (r) 
+	       `(,'unquote ,(property->syntax r))) el))))
       `(list->array 
 	,(length (array-dimensions el)) 
 	,(list 'quasiquote els))))))
@@ -324,22 +331,20 @@ if there is no match"
 (define (process-val val me parent args)
   (cond
    ((method? val) 
-    (apply ((method-procedure val) me) args))
+    (apply ((method-procedure val) me me) args))
    ((reference? val) (resolve-reference val))
    ((list? val) (map (lambda (el) (process-val el me parent args)) val))
    (else val)))
 
-(define* (super child #:optional par)
-  (and-let* ((parent (or par (object-parent child))))
+(define (super present)
+  (and-let* ((parent (object-parent present)))
     (lambda* (#:key (def *unspecified*) #:allow-other-keys . args)	       
       (let* ((parent-clean-args (remove-keyword-args args (list #:def)))
 	     (direct-parent (get-containing-object (car parent-clean-args) parent)))
 	(let process-super-val ((val (get (car parent-clean-args) direct-parent def)))
 	  (cond
 	   ((method? val) 
-	    (apply ((method-procedure val) 
-		    child 
-		    (super child (object-parent direct-parent)))
+	    (apply ((method-procedure val) parent direct-parent)
 		   (cdr parent-clean-args)))
 	   ((reference? val) (resolve-reference val))
 	   ((list? val) (map (lambda (el) (process-super-val el)) val))
@@ -428,7 +433,8 @@ if there is no match"
 	    #f))       
        (me (make-object 
 	    n #f (if properties properties (make-module)) children 
-	    uid (make-weak-value-hash-table))))
+	    uid (make-weak-value-hash-table)
+	    (make-fluid))))
     (if (or enable-cross-references? runtime-prototype-update?) (hash-set! uids uid me))
     (if (list? children-list) 
 	(map (lambda (child) 
@@ -450,7 +456,7 @@ if there is no match"
 (define* (object-get obj #:key def . keys) 
   (let ((result (get (remove-keyword-args keys '(#:def))' obj def)))
     (cond 
-     ((method? result) ((method-procedure result) obj))
+     ((method? result) ((method-procedure result) obj obj))
      ((reference? result) (resolve-reference result))
      (else result))))
 
@@ -485,12 +491,12 @@ if there is no match"
      (if (method? (variable-ref val))
 	 (assq-set! prev key
 		    (procedure-documentation 
-		     ((method-procedure (variable-ref val)) #f))))) 
+		     ((method-procedure (variable-ref val)) #f #f))))) 
    (if (object-parent obj) 
        (object-documentation (object-parent obj)) '()) 
    (module-obarray (object-props obj))))
 
-(define :
+(define $
  (make-procedure-with-setter 
   (lambda* (obj keys #:key (def *unspecified*) . args)
     (process-val (get keys obj def) obj (object-parent obj) 
@@ -503,4 +509,9 @@ if there is no match"
 		 ((pair? par) (object-desc (car par) (cdr par)))
 		 (else par))))
     (set-object-parent! child parent)
-    (if args (apply child (cons 'initialize! args))) child))
+    (if args (apply $ child (cons 'initialize! args))) child))
+
+(define-object Grandparent (initialize! (method (a b) (set! ($ this 'c) (+ a b)))))
+(define-object Parent (initialize! (method (a) ((super present) 'initialize! 10 a))))
+(define-object Child (initialize! (method () ((super present) 'initialize! 5))))
+(extend Grandparent (list (list Parent (list Child))))
